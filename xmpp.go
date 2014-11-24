@@ -168,6 +168,7 @@ func (o Options) NewClient() (*Client, error) {
 		if o.TLSConfig != nil {
 			tlsconn = tls.Client(c, o.TLSConfig)
 		} else {
+			DefaultConfig.ServerName = strings.Split(o.User, "@")[1]
 			tlsconn = tls.Client(c, &DefaultConfig)
 		}
 		if err = tlsconn.Handshake(); err != nil {
@@ -544,21 +545,21 @@ func (c *Client) Recv() (event interface{}, err error) {
 }
 
 // Send sends message text.
-func (c *Client) Send(msg interface{}) {
+func (c *Client) Send(msg interface{}) (n int, err error) {
 	switch v := msg.(type) {
 	case Chat:
-		fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
+		return fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
 			"<body>%s</body></message>",
 			xmlEscape(v.Remote), xmlEscape(v.Type), xmlEscape(v.Text))
 	case IQ:
-		fmt.Fprintf(c.conn, "<iq to='%s' type='%s' id='%x'>%s</iq>",
+		return fmt.Fprintf(c.conn, "<iq to='%s' type='%s' id='%x'>%s</iq>",
 			xmlEscape(v.To), xmlEscape(v.Type), getCookie(), v.Data)
 	}
 }
 
 // Send origin
-func (c *Client) SendOrg(org string) {
-	fmt.Fprint(c.conn, org)
+func (c *Client) SendOrg(org string) (n int, err error) {
+	return fmt.Fprint(c.conn, org)
 }
 
 // RFC 3920  C.1  Streams name space
