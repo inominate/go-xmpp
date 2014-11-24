@@ -555,6 +555,7 @@ func (c *Client) Send(msg interface{}) (n int, err error) {
 		return fmt.Fprintf(c.conn, "<iq to='%s' type='%s' id='%x'>%s</iq>",
 			xmlEscape(v.To), xmlEscape(v.Type), getCookie(), v.Data)
 	}
+	return 0, errors.New("unsupported stanza type")
 }
 
 // Send origin
