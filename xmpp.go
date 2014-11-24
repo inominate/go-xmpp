@@ -517,6 +517,13 @@ type Presence struct {
 	Show string
 }
 
+type IQ struct {
+	From string
+	To   string
+	Type string
+	Data string
+}
+
 // Recv wait next token of chat.
 func (c *Client) Recv() (event interface{}, err error) {
 	for {
@@ -529,16 +536,24 @@ func (c *Client) Recv() (event interface{}, err error) {
 			return Chat{v.From, v.Type, v.Body, v.Other}, nil
 		case *clientPresence:
 			return Presence{v.From, v.To, v.Type, v.Show}, nil
+		case *clientIQ:
+			return IQ{v.From, v.To, v.Type, v.Data}, nil
 		}
 	}
 	panic("unreachable")
 }
 
 // Send sends message text.
-func (c *Client) Send(chat Chat) {
-	fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
-		"<body>%s</body></message>",
-		xmlEscape(chat.Remote), xmlEscape(chat.Type), xmlEscape(chat.Text))
+func (c *Client) Send(msg interface{}) {
+	switch v := msg.(type) {
+	case Chat:
+		fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
+			"<body>%s</body></message>",
+			xmlEscape(v.Remote), xmlEscape(v.Type), xmlEscape(v.Text))
+	case IQ:
+		fmt.Fprintf(c.conn, "<iq to='%s' type='%s' id='%x'>%s</iq>",
+			xmlEscape(v.To), xmlEscape(v.Type), getCookie(), v.Data)
+	}
 }
 
 // Send origin
@@ -655,10 +670,11 @@ type clientPresence struct {
 
 type clientIQ struct { // info/query
 	XMLName xml.Name `xml:"jabber:client iq"`
-	From    string   `xml:",attr"`
-	Id      string   `xml:",attr"`
-	To      string   `xml:",attr"`
-	Type    string   `xml:",attr"` // error, get, result, set
+	From    string   `xml:"from,attr"`
+	Id      string   `xml:"id,attr"`
+	To      string   `xml:"to,attr"`
+	Type    string   `xml:"type,attr"` // error, get, result, set
+	Data    string   `xml:",innerxml"`
 	Error   clientError
 	Bind    bindBind
 }
