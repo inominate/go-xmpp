@@ -150,6 +150,9 @@ type Options struct {
 
 	// Status message
 	StatusMessage string
+
+	// Priority
+	Priority int
 }
 
 // NewClient establishes a new Client connection based on a set of Options.
@@ -412,7 +415,7 @@ func (c *Client) init(o *Options) error {
 	}
 
 	// We're connected and can now receive and send messages.
-	fmt.Fprintf(c.conn, "<presence xml:lang='en'><show>%s</show><status>%s</status></presence>", o.Status, o.StatusMessage)
+	fmt.Fprintf(c.conn, "<presence xml:lang='en'><show>%s</show><status>%s</status><priority>%d</priority></presence>", o.Status, o.StatusMessage, o.Priority)
 
 	return nil
 }
@@ -545,6 +548,12 @@ func (c *Client) Recv() (event interface{}, err error) {
 		}
 		switch v := val.(type) {
 		case *clientMessage:
+			if v.Delay.From != "" {
+				// Ignore delayed message.
+				// It really should be a separate message type though.
+				continue
+			}
+
 			return Chat{v.From, v.Type, v.Body, v.Id, v.Other}, nil
 		case *clientPresence:
 			return Presence{v.From, v.To, v.Type, v.Show, v.Id, v.Item.Jid, v.Item.Affiliation, v.Item.Role}, nil
@@ -665,10 +674,15 @@ type clientMessage struct {
 	Body    string `xml:"body"`
 	Thread  string `xml:"thread"`
 
-	Item clientPresenceItem `xml:"x>item"`
+	Delay clientMessageDelay `xml:"delay"`
 
 	// Any hasn't matched element
 	Other []string `xml:",any"`
+}
+
+type clientMessageDelay struct {
+	Stamp string `xml:"stamp,attr"`
+	From  string `xml:"from,attr"`
 }
 
 type clientText struct {
