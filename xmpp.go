@@ -508,7 +508,10 @@ type Chat struct {
 	Remote string
 	Type   string
 	Text   string
-	Other  []string
+
+	Id string
+
+	Other []string
 }
 
 type Presence struct {
@@ -516,6 +519,12 @@ type Presence struct {
 	To   string
 	Type string
 	Show string
+
+	Id string
+
+	Jid         string
+	Affiliation string
+	Role        string
 }
 
 type IQ struct {
@@ -523,6 +532,8 @@ type IQ struct {
 	To   string
 	Type string
 	Data string
+
+	Id string
 }
 
 // Recv wait next token of chat.
@@ -534,11 +545,11 @@ func (c *Client) Recv() (event interface{}, err error) {
 		}
 		switch v := val.(type) {
 		case *clientMessage:
-			return Chat{v.From, v.Type, v.Body, v.Other}, nil
+			return Chat{v.From, v.Type, v.Body, v.Id, v.Other}, nil
 		case *clientPresence:
-			return Presence{v.From, v.To, v.Type, v.Show}, nil
+			return Presence{v.From, v.To, v.Type, v.Show, v.Id, v.Item.Jid, v.Item.Affiliation, v.Item.Role}, nil
 		case *clientIQ:
-			return IQ{v.From, v.To, v.Type, v.Data}, nil
+			return IQ{v.From, v.To, v.Type, v.Data, v.Id}, nil
 		}
 	}
 	panic("unreachable")
@@ -551,9 +562,16 @@ func (c *Client) Send(msg interface{}) (n int, err error) {
 		return fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
 			"<body>%s</body></message>",
 			xmlEscape(v.Remote), xmlEscape(v.Type), xmlEscape(v.Text))
+
 	case IQ:
-		return fmt.Fprintf(c.conn, "<iq to='%s' type='%s' id='%x'>%s</iq>",
-			xmlEscape(v.To), xmlEscape(v.Type), getCookie(), v.Data)
+		if v.Id == "" {
+			v.Id = fmt.Sprintf("%x", getCookie())
+		} else {
+			v.Id = xmlEscape(v.Id)
+		}
+
+		return fmt.Fprintf(c.conn, "<iq to='%s' type='%s' id='%s'>%s</iq>",
+			xmlEscape(v.To), xmlEscape(v.Type), v.Id, v.Data)
 	}
 	return 0, errors.New("unsupported stanza type")
 }
@@ -647,6 +665,8 @@ type clientMessage struct {
 	Body    string `xml:"body"`
 	Thread  string `xml:"thread"`
 
+	Item clientPresenceItem `xml:"x>item"`
+
 	// Any hasn't matched element
 	Other []string `xml:",any"`
 }
@@ -667,7 +687,16 @@ type clientPresence struct {
 	Show     string `xml:"show"`        // away, chat, dnd, xa
 	Status   string `xml:"status,attr"` // sb []clientText
 	Priority string `xml:"priority,attr"`
-	Error    *clientError
+
+	Item clientPresenceItem `xml:"x>item"`
+
+	Error *clientError
+}
+
+type clientPresenceItem struct {
+	Jid         string `xml:"jid,attr"`
+	Affiliation string `xml:"affiliation,attr"`
+	Role        string `xml:"role,attr"`
 }
 
 type clientIQ struct { // info/query
