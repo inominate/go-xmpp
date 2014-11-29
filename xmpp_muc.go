@@ -21,11 +21,11 @@ func (c *Client) JoinMUC(jid string) {
 	fmt.Fprintf(c.conn, "<presence to='%s'>\n"+
 		"<x xmlns='%s' />\n"+
 		"</presence>",
-		xmlEscape(jid), nsMUC)
+		XMLEscape(jid), nsMUC)
 }
 
 // xep-0045 7.14
 func (c *Client) LeaveMUC(jid string) {
 	fmt.Fprintf(c.conn, "<presence from='%s' to='%s' type='unavailable' />",
-		c.jid, xmlEscape(jid))
+		c.jid, XMLEscape(jid))
 }

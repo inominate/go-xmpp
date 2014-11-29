@@ -411,7 +411,7 @@ func (c *Client) init(o *Options) error {
 
 	if o.Session {
 		//if server support session, open it
-		fmt.Fprintf(c.conn, "<iq to='%s' type='set' id='%x'><session xmlns='%s'/></iq>", xmlEscape(domain), cookie, NsSession)
+		fmt.Fprintf(c.conn, "<iq to='%s' type='set' id='%x'><session xmlns='%s'/></iq>", XMLEscape(domain), cookie, NsSession)
 	}
 
 	// We're connected and can now receive and send messages.
@@ -475,7 +475,7 @@ func (c *Client) startStream(o *Options, domain string) (*streamFeatures, error)
 	_, err := fmt.Fprintf(c.conn, "<?xml version='1.0'?>\n"+
 		"<stream:stream to='%s' xmlns='%s'\n"+
 		" xmlns:stream='%s' version='1.0'>\n",
-		xmlEscape(domain), nsClient, nsStream)
+		XMLEscape(domain), nsClient, nsStream)
 	if err != nil {
 		return nil, err
 	}
@@ -570,17 +570,17 @@ func (c *Client) Send(msg interface{}) (n int, err error) {
 	case Chat:
 		return fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
 			"<body>%s</body></message>",
-			xmlEscape(v.Remote), xmlEscape(v.Type), xmlEscape(v.Text))
+			XMLEscape(v.Remote), XMLEscape(v.Type), XMLEscape(v.Text))
 
 	case IQ:
 		if v.Id == "" {
 			v.Id = fmt.Sprintf("%x", getCookie())
 		} else {
-			v.Id = xmlEscape(v.Id)
+			v.Id = XMLEscape(v.Id)
 		}
 
 		return fmt.Fprintf(c.conn, "<iq to='%s' type='%s' id='%s'>%s</iq>",
-			xmlEscape(v.To), xmlEscape(v.Type), v.Id, v.Data)
+			XMLEscape(v.To), XMLEscape(v.Type), v.Id, v.Data)
 	}
 	return 0, errors.New("unsupported stanza type")
 }
@@ -812,7 +812,7 @@ var xmlSpecial = map[byte]string{
 	'&':  "&amp;",
 }
 
-func xmlEscape(s string) string {
+func XMLEscape(s string) string {
 	var b bytes.Buffer
 	for i := 0; i < len(s); i++ {
 		c := s[i]
