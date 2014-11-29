@@ -567,11 +567,17 @@ func (c *Client) Recv() (event interface{}, err error) {
 // Send sends message text.
 func (c *Client) Send(msg interface{}) (n int, err error) {
 	switch v := msg.(type) {
+
+	case string:
+		return c.conn.Write([]byte(v))
+
+	case []byte:
+		return c.conn.Write(v)
+
 	case Chat:
 		return fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
 			"<body>%s</body></message>",
 			XMLEscape(v.Remote), XMLEscape(v.Type), XMLEscape(v.Text))
-
 	case IQ:
 		if v.Id == "" {
 			v.Id = fmt.Sprintf("%x", getCookie())
