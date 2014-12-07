@@ -512,6 +512,8 @@ type Chat struct {
 	Type   string
 	Text   string
 
+	Subject string
+
 	Id string
 
 	Other []string
@@ -554,7 +556,7 @@ func (c *Client) Recv() (event interface{}, err error) {
 				continue
 			}
 
-			return Chat{v.From, v.Type, v.Body, v.Id, v.Other}, nil
+			return Chat{v.From, v.Type, v.Body, v.Subject, v.Id, v.Other}, nil
 		case *clientPresence:
 			return Presence{v.From, v.To, v.Type, v.Show, v.Id, v.Item.Jid, v.Item.Affiliation, v.Item.Role}, nil
 		case *clientIQ:
@@ -575,9 +577,12 @@ func (c *Client) Send(msg interface{}) (n int, err error) {
 		return c.conn.Write(v)
 
 	case Chat:
-		return fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
-			"<body>%s</body></message>",
-			XMLEscape(v.Remote), XMLEscape(v.Type), XMLEscape(v.Text))
+		subjectStr := ""
+		if v.Subject != "" {
+			subjectStr = fmt.Sprintf("subject='%s' ", XMLEscape(v.Subject))
+		}
+		return fmt.Fprintf(c.conn, "<message to='%s' type='%s' %sxml:lang='en'><body>%s</body></message>",
+			XMLEscape(v.Remote), XMLEscape(v.Type), subjectStr, XMLEscape(v.Text))
 	case IQ:
 		if v.Id == "" {
 			v.Id = fmt.Sprintf("%x", getCookie())
