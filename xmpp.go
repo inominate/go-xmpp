@@ -38,11 +38,13 @@ const (
 	nsSASL    = "urn:ietf:params:xml:ns:xmpp-sasl"
 	nsBind    = "urn:ietf:params:xml:ns:xmpp-bind"
 	nsClient  = "jabber:client"
-	NsSession = "urn:ietf:params:xml:ns:xmpp-session"
+	nsSession = "urn:ietf:params:xml:ns:xmpp-session"
 )
 
+// Default TLS configuration options
 var DefaultConfig tls.Config
 
+// Cookie is a unique XMPP session identifier
 type Cookie uint64
 
 func getCookie() Cookie {
@@ -53,6 +55,7 @@ func getCookie() Cookie {
 	return Cookie(binary.LittleEndian.Uint64(buf[:]))
 }
 
+// Client holds XMPP connection opitons
 type Client struct {
 	conn   net.Conn // connection to server
 	jid    string   // Jabber ID for our connection
@@ -214,6 +217,7 @@ func NewClient(host, user, passwd string, debug bool) (*Client, error) {
 	return opts.NewClient()
 }
 
+// NewClientNoTLS creates a new client without TLS
 func NewClientNoTLS(host, user, passwd string, debug bool) (*Client, error) {
 	opts := Options{
 		Host:     host,
@@ -226,12 +230,15 @@ func NewClientNoTLS(host, user, passwd string, debug bool) (*Client, error) {
 	return opts.NewClient()
 }
 
+// Close closes the XMPP connection
 func (c *Client) Close() error {
-	return c.conn.Close()
+	if c.conn != (*tls.Conn)(nil) {
+		return c.conn.Close()
+	}
+	return nil
 }
 
-func saslDigestResponse(username, realm, passwd, nonce, cnonceStr,
-	authenticate, digestUri, nonceCountStr string) string {
+func saslDigestResponse(username, realm, passwd, nonce, cnonceStr, authenticate, digestURI, nonceCountStr string) string {
 	h := func(text string) []byte {
 		h := md5.New()
 		h.Write([]byte(text))
@@ -244,12 +251,9 @@ func saslDigestResponse(username, realm, passwd, nonce, cnonceStr,
 		return h(secret + ":" + data)
 	}
 
-	a1 := string(h(username+":"+realm+":"+passwd)) + ":" +
-		nonce + ":" + cnonceStr
-	a2 := authenticate + ":" + digestUri
-	response := hex(kd(hex(h(a1)), nonce+":"+
-		nonceCountStr+":"+cnonceStr+":auth:"+
-		hex(h(a2))))
+	a1 := string(h(username+":"+realm+":"+passwd)) + ":" + nonce + ":" + cnonceStr
+	a2 := authenticate + ":" + digestURI
+	response := hex(kd(hex(h(a1)), nonce+":"+nonceCountStr+":"+cnonceStr+":auth:"+hex(h(a2))))
 	return response
 }
 
@@ -264,10 +268,11 @@ func cnonce() string {
 }
 
 func (c *Client) init(o *Options) error {
-	c.p = xml.NewDecoder(c.conn)
-	// For debugging: the following causes the plaintext of the connection to be duplicated to stdout.
 	if o.Debug {
-		c.p = xml.NewDecoder(tee{c.conn, os.Stdout})
+		// For debugging: the following causes the plaintext of the connection to be duplicated to stderr.
+		c.p = xml.NewDecoder(tee{c.conn, os.Stderr})
+	} else {
+		c.p = xml.NewDecoder(c.conn)
 	}
 
 	a := strings.SplitN(o.User, "@", 2)
@@ -283,7 +288,7 @@ func (c *Client) init(o *Options) error {
 	}
 
 	// If the server requires we STARTTLS, attempt to do so.
-	if f, err = c.startTlsIfRequired(f, o, domain); err != nil {
+	if f, err = c.startTLSIfRequired(f, o, domain); err != nil {
 		return err
 	}
 
@@ -315,15 +320,13 @@ func (c *Client) init(o *Options) error {
 			raw := "\x00" + user + "\x00" + o.Password
 			enc := make([]byte, base64.StdEncoding.EncodedLen(len(raw)))
 			base64.StdEncoding.Encode(enc, []byte(raw))
-			fmt.Fprintf(c.conn, "<auth xmlns='%s' mechanism='PLAIN'>%s</auth>\n",
-				nsSASL, enc)
+			fmt.Fprintf(c.conn, "<auth xmlns='%s' mechanism='PLAIN'>%s</auth>\n", nsSASL, enc)
 			break
 		}
 		if m == "DIGEST-MD5" {
 			mechanism = m
 			// Digest-MD5 authentication
-			fmt.Fprintf(c.conn, "<auth xmlns='%s' mechanism='DIGEST-MD5'/>\n",
-				nsSASL)
+			fmt.Fprintf(c.conn, "<auth xmlns='%s' mechanism='DIGEST-MD5'/>\n", nsSASL)
 			var ch saslChallenge
 			if err = c.p.DecodeElement(&ch, nil); err != nil {
 				return errors.New("unmarshal <challenge>: " + err.Error())
@@ -347,10 +350,11 @@ func (c *Client) init(o *Options) error {
 			qop, _ := tokens["qop"]
 			charset, _ := tokens["charset"]
 			cnonceStr := cnonce()
-			digestUri := "xmpp/" + domain
+			digestURI := "xmpp/" + domain
 			nonceCount := fmt.Sprintf("%08x", 1)
-			digest := saslDigestResponse(user, realm, o.Password, nonce, cnonceStr, "AUTHENTICATE", digestUri, nonceCount)
-			message := "username=\"" + user + "\", realm=\"" + realm + "\", nonce=\"" + nonce + "\", cnonce=\"" + cnonceStr + "\", nc=" + nonceCount + ", qop=" + qop + ", digest-uri=\"" + digestUri + "\", response=" + digest + ", charset=" + charset
+			digest := saslDigestResponse(user, realm, o.Password, nonce, cnonceStr, "AUTHENTICATE", digestURI, nonceCount)
+			message := "username=\"" + user + "\", realm=\"" + realm + "\", nonce=\"" + nonce + "\", cnonce=\"" + cnonceStr +
+				"\", nc=" + nonceCount + ", qop=" + qop + ", digest-uri=\"" + digestURI + "\", response=" + digest + ", charset=" + charset
 
 			fmt.Fprintf(c.conn, "<response xmlns='%s'>%s</response>\n", nsSASL, base64.StdEncoding.EncodeToString([]byte(message)))
 
@@ -367,7 +371,7 @@ func (c *Client) init(o *Options) error {
 		}
 	}
 	if mechanism == "" {
-		return errors.New(fmt.Sprintf("PLAIN authentication is not an option: %v", f.Mechanisms.Mechanism))
+		return fmt.Errorf("PLAIN authentication is not an option: %v", f.Mechanisms.Mechanism)
 	}
 
 	// Next message should be either success or failure.
@@ -391,7 +395,7 @@ func (c *Client) init(o *Options) error {
 		return err
 	}
 
-	//Generate uniq cookie
+	// Generate a uniqe cookie
 	cookie := getCookie()
 
 	// Send IQ message asking to bind to the local user name.
@@ -411,7 +415,7 @@ func (c *Client) init(o *Options) error {
 
 	if o.Session {
 		//if server support session, open it
-		fmt.Fprintf(c.conn, "<iq to='%s' type='set' id='%x'><session xmlns='%s'/></iq>", XMLEscape(domain), cookie, NsSession)
+		fmt.Fprintf(c.conn, "<iq to='%s' type='set' id='%x'><session xmlns='%s'/></iq>", XMLEscape(domain), cookie, nsSession)
 	}
 
 	// We're connected and can now receive and send messages.
@@ -422,7 +426,7 @@ func (c *Client) init(o *Options) error {
 
 // startTlsIfRequired examines the server's stream features and, if STARTTLS is required or supported, performs the TLS handshake.
 // f will be updated if the handshake completes, as the new stream's features are typically different from the original.
-func (c *Client) startTlsIfRequired(f *streamFeatures, o *Options, domain string) (*streamFeatures, error) {
+func (c *Client) startTLSIfRequired(f *streamFeatures, o *Options, domain string) (*streamFeatures, error) {
 	// whether we start tls is a matter of opinion: the server's and the user's.
 	switch {
 	case f.StartTLS == nil:
@@ -464,12 +468,13 @@ func (c *Client) startTlsIfRequired(f *streamFeatures, o *Options, domain string
 }
 
 // startStream will start a new XML decoder for the connection, signal the start of a stream to the server and verify that the server has
-// also started the stream; if o.Debug is true, startStream will tee decoded XML data to stdout.  The features advertised by the server
+// also started the stream; if o.Debug is true, startStream will tee decoded XML data to stderr.  The features advertised by the server
 // will be returned.
 func (c *Client) startStream(o *Options, domain string) (*streamFeatures, error) {
-	c.p = xml.NewDecoder(c.conn)
 	if o.Debug {
-		c.p = xml.NewDecoder(tee{c.conn, os.Stdout})
+		c.p = xml.NewDecoder(tee{c.conn, os.Stderr})
+	} else {
+		c.p = xml.NewDecoder(c.conn)
 	}
 
 	_, err := fmt.Fprintf(c.conn, "<?xml version='1.0'?>\n"+
@@ -499,14 +504,14 @@ func (c *Client) startStream(o *Options, domain string) (*streamFeatures, error)
 	return f, nil
 }
 
-// IsEncrypted will return true if the client is connected using a TLS transport, either because it used
-// TLS to connect from the outset, or because it successfully used STARTTLS to promote a TCP connection
-// to TLS.
+// IsEncrypted will return true if the client is connected using a TLS transport, either because it used.
+// TLS to connect from the outset, or because it successfully used STARTTLS to promote a TCP connection to TLS.
 func (c *Client) IsEncrypted() bool {
 	_, ok := c.conn.(*tls.Conn)
 	return ok
 }
 
+// Chat is an incoming or outgoing XMPP chat message.
 type Chat struct {
 	Remote string
 	Type   string
@@ -514,18 +519,19 @@ type Chat struct {
 
 	Subject string
 
-	Id string
+	ID string
 
 	Other []string
 }
 
+// Presence is an XMPP presence notification.
 type Presence struct {
 	From string
 	To   string
 	Type string
 	Show string
 
-	Id string
+	ID string
 
 	Jid         string
 	Affiliation string
@@ -538,11 +544,12 @@ type IQ struct {
 	Type string
 	Data string
 
-	Id string
+	ID string
 }
 
-// Recv wait next token of chat.
-func (c *Client) Recv() (event interface{}, err error) {
+// Recv waits to receive the next XMPP stanza.
+// Return type is either a presence notification or a chat message.
+func (c *Client) Recv() (stanza interface{}, err error) {
 	for {
 		_, val, err := next(c.p)
 		if err != nil {
@@ -556,17 +563,17 @@ func (c *Client) Recv() (event interface{}, err error) {
 				continue
 			}
 
-			return Chat{v.From, v.Type, v.Body, v.Subject, v.Id, v.Other}, nil
+			return Chat{v.From, v.Type, v.Body, v.Subject, v.ID, v.Other}, nil
 		case *clientPresence:
-			return Presence{v.From, v.To, v.Type, v.Show, v.Id, v.Item.Jid, v.Item.Affiliation, v.Item.Role}, nil
+			return Presence{v.From, v.To, v.Type, v.Show, v.ID, v.Item.Jid, v.Item.Affiliation, v.Item.Role}, nil
 		case *clientIQ:
-			return IQ{v.From, v.To, v.Type, v.Data, v.Id}, nil
+			return IQ{v.From, v.To, v.Type, v.Data, v.ID}, nil
 		}
 	}
 	panic("unreachable")
 }
 
-// Send sends message text.
+// Send sends an XMPP stanza.
 func (c *Client) Send(msg interface{}) (n int, err error) {
 	switch v := msg.(type) {
 
@@ -584,21 +591,29 @@ func (c *Client) Send(msg interface{}) (n int, err error) {
 		return fmt.Fprintf(c.conn, "<message to='%s' type='%s' %sxml:lang='en'><body>%s</body></message>",
 			XMLEscape(v.Remote), XMLEscape(v.Type), subjectStr, XMLEscape(v.Text))
 	case IQ:
-		if v.Id == "" {
-			v.Id = fmt.Sprintf("%x", getCookie())
+		if v.ID == "" {
+			v.ID = fmt.Sprintf("%x", getCookie())
 		} else {
-			v.Id = XMLEscape(v.Id)
+			v.ID = XMLEscape(v.ID)
 		}
 
 		return fmt.Fprintf(c.conn, "<iq to='%s' type='%s' id='%s'>%s</iq>",
-			XMLEscape(v.To), XMLEscape(v.Type), v.Id, v.Data)
+			XMLEscape(v.To), XMLEscape(v.Type), v.ID, v.Data)
 	}
 	return 0, errors.New("unsupported stanza type")
 }
 
-// Send origin
+// SendOrg sends the original text without being wrapped in an XMPP message stanza.
 func (c *Client) SendOrg(org string) (n int, err error) {
 	return fmt.Fprint(c.conn, org)
+}
+
+// SendHtml sends the message as HTML as defined by XEP-0071
+func (c *Client) SendHtml(chat Chat) (n int, err error) {
+	return fmt.Fprintf(c.conn, "<message to='%s' type='%s' xml:lang='en'>"+
+		"<body>%s</body>"+
+		"<html xmlns='http://jabber.org/protocol/xhtml-im'><body xmlns='http://www.w3.org/1999/xhtml'>%s</body></html></message>",
+		XMLEscape(chat.Remote), XMLEscape(chat.Type), XMLEscape(chat.Text), chat.Text)
 }
 
 // RFC 3920  C.1  Streams name space
@@ -617,7 +632,6 @@ type streamError struct {
 }
 
 // RFC 3920  C.3  TLS name space
-
 type tlsStartTLS struct {
 	XMLName  xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-tls starttls"`
 	Required *string  `xml:"required"`
@@ -632,7 +646,6 @@ type tlsFailure struct {
 }
 
 // RFC 3920  C.4  SASL name space
-
 type saslMechanisms struct {
 	XMLName   xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-sasl mechanisms"`
 	Mechanism []string `xml:"mechanism"`
@@ -663,7 +676,6 @@ type saslFailure struct {
 }
 
 // RFC 3920  C.5  Resource binding name space
-
 type bindBind struct {
 	XMLName  xml.Name `xml:"urn:ietf:params:xml:ns:xmpp-bind bind"`
 	Resource string
@@ -671,16 +683,14 @@ type bindBind struct {
 }
 
 // RFC 3921  B.1  jabber:client
-
 type clientMessage struct {
 	XMLName xml.Name `xml:"jabber:client message"`
 	From    string   `xml:"from,attr"`
-	Id      string   `xml:"id,attr"`
+	ID      string   `xml:"id,attr"`
 	To      string   `xml:"to,attr"`
 	Type    string   `xml:"type,attr"` // chat, error, groupchat, headline, or normal
 
-	// These should technically be []clientText,
-	// but string is much more convenient.
+	// These should technically be []clientText, but string is much more convenient.
 	Subject string `xml:"subject"`
 	Body    string `xml:"body"`
 	Thread  string `xml:"thread"`
@@ -704,7 +714,7 @@ type clientText struct {
 type clientPresence struct {
 	XMLName xml.Name `xml:"jabber:client presence"`
 	From    string   `xml:"from,attr"`
-	Id      string   `xml:"id,attr"`
+	ID      string   `xml:"id,attr"`
 	To      string   `xml:"to,attr"`
 	Type    string   `xml:"type,attr"` // error, probe, subscribe, subscribed, unavailable, unsubscribe, unsubscribed
 	Lang    string   `xml:"lang,attr"`
@@ -727,12 +737,14 @@ type clientPresenceItem struct {
 type clientIQ struct { // info/query
 	XMLName xml.Name `xml:"jabber:client iq"`
 	From    string   `xml:"from,attr"`
-	Id      string   `xml:"id,attr"`
+	ID      string   `xml:"id,attr"`
 	To      string   `xml:"to,attr"`
 	Type    string   `xml:"type,attr"` // error, get, result, set
-	Data    string   `xml:",innerxml"`
-	Error   clientError
-	Bind    bindBind
+
+	Data string `xml:",innerxml"`
+
+	Error clientError
+	Bind  bindBind
 }
 
 type clientError struct {

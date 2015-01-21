@@ -27,6 +27,19 @@ func (c *Client) JoinMUC(jid, nick string) {
 		XMLEscape(jid), XMLEscape(nick), nsMUC)
 }
 
+// xep-0045 7.2.6
+func (c *Client) JoinProtectedMUC(jid, nick string, password string) {
+	if nick == "" {
+		nick = c.jid
+	}
+	fmt.Fprintf(c.conn, "<presence to='%s/%s'>\n"+
+		"<x xmlns='%s'>\n"+
+		"<password>%s</password>\n"+
+		"</x>\n"+
+		"</presence>",
+		XMLEscape(jid), XMLEscape(nick), nsMUC, XMLEscape(password))
+}
+
 // xep-0045 7.14
 func (c *Client) LeaveMUC(jid string) {
 	fmt.Fprintf(c.conn, "<presence from='%s' to='%s' type='unavailable' />",
