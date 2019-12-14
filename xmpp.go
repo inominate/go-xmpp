@@ -522,6 +522,8 @@ type Chat struct {
 	ID string
 
 	Other []string
+
+	DisableCarbons bool
 }
 
 // Presence is an XMPP presence notification.
@@ -563,7 +565,7 @@ func (c *Client) Recv() (stanza interface{}, err error) {
 				continue
 			}
 
-			return Chat{v.From, v.Type, v.Body, v.Subject, v.ID, v.Other}, nil
+			return Chat{v.From, v.Type, v.Body, v.Subject, v.ID, v.Other, false}, nil
 		case *clientPresence:
 			return Presence{v.From, v.To, v.Type, v.Show, v.ID, v.Item.Jid, v.Item.Affiliation, v.Item.Role}, nil
 		case *clientIQ:
@@ -588,8 +590,12 @@ func (c *Client) Send(msg interface{}) (n int, err error) {
 		if v.Subject != "" {
 			subjectStr = fmt.Sprintf("subject='%s' ", XMLEscape(v.Subject))
 		}
-		return fmt.Fprintf(c.conn, "<message to='%s' type='%s' %sxml:lang='en'><body>%s</body></message>",
-			XMLEscape(v.Remote), XMLEscape(v.Type), subjectStr, XMLEscape(v.Text))
+		carbonDisable := ""
+		if v.DisableCarbons {
+			carbonDisable = "<private xmlns='urn:xmpp:carbons:2'/><no-copy xmlns='urn:xmpp:hints'/>"
+		}
+		return fmt.Fprintf(c.conn, "<message to='%s' type='%s' %sxml:lang='en'><body>%s</body>%s</message>",
+			XMLEscape(v.Remote), XMLEscape(v.Type), subjectStr, XMLEscape(v.Text), carbonDisable)
 	case IQ:
 		if v.ID == "" {
 			v.ID = fmt.Sprintf("%x", getCookie())
